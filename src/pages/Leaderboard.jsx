@@ -1,14 +1,31 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Trophy, Star, Flame, Zap } from 'lucide-react';
 import { DEMO_LEADERBOARD } from '../data/questions';
+import api from '../services/api';
 import './Leaderboard.css';
 
 const medalColors = ['#FFD700', '#C0C0C0', '#CD7F32'];
 const medalEmoji = ['🥇', '🥈', '🥉'];
 
 const Leaderboard = () => {
-  const topThree = DEMO_LEADERBOARD.slice(0, 3);
-  const rest = DEMO_LEADERBOARD.slice(3);
+  const [leaderboard, setLeaderboard] = useState(DEMO_LEADERBOARD);
+  const [isLive, setIsLive] = useState(false);
+
+  useEffect(() => {
+    api.getLeaderboard()
+      .then((data) => {
+        if (data && data.length > 0) {
+          setLeaderboard(data);
+          setIsLive(true);
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend leaderboard unreachable, falling back to demo data:', err);
+      });
+  }, []);
+
+  const topThree = leaderboard.slice(0, 3);
+  const rest = leaderboard.slice(3);
 
   return (
     <main className="leaderboard-page">
@@ -23,9 +40,13 @@ const Leaderboard = () => {
             HALL OF LEGENDS
           </div>
           <h1 className="section-title">Leaderboard</h1>
-          <p className="section-subtitle">Top Python warriors ranked by XP — Demo data for illustration</p>
+          <p className="section-subtitle">Top Python warriors ranked by XP</p>
           <div className="lb-demo-notice">
-            ℹ️ This leaderboard uses sample data and does not represent real users.
+            {isLive ? (
+              <span>⚡ Live database ranking powered by FastAPI backend</span>
+            ) : (
+              <span>ℹ️ Offline mode: showing sample rankings</span>
+            )}
           </div>
         </div>
 
@@ -56,7 +77,7 @@ const Leaderboard = () => {
             <span>Quizzes</span>
             <span>Streak</span>
           </div>
-          {DEMO_LEADERBOARD.map((player, i) => (
+          {leaderboard.map((player, i) => (
             <div key={player.id} className={`lb-row ${i < 3 ? 'lb-row-top' : ''}`}>
               <div className="lb-rank">
                 {i < 3 ? (

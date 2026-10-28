@@ -2,3 +2,21 @@ __pycache__/
 *.py[cod]
 *$py.class
 .DS_Store
+
+# Virtual Environments
+venv/
+backend/venv/
+.venv/
+
+# Database files
+*.db
+*.sqlite3
+
+# Environment files
+.env
+backend/.env
+
+# Dependencies & Build artifacts
+node_modules/
+dist/
+.pytest_cache/

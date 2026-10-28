@@ -7,6 +7,8 @@ import { getLevelConfig } from '../data/questions';
 import { getProgress, getStreak } from '../utils/storage';
 import './Home.css';
 
+import api from '../services/api';
+
 /* ─── Floating decorative element ─── */
 const FloatBadge = ({ style, children, delay = 0 }) => (
   <div className="float-badge" style={{ ...style, animationDelay: `${delay}s` }}>
@@ -14,7 +16,7 @@ const FloatBadge = ({ style, children, delay = 0 }) => (
   </div>
 );
 
-/* ─── Stat counter ─── */
+/* ─── Stat item ─── */
 const StatItem = ({ icon, value, label }) => (
   <div className="hero-stat">
     <span className="hero-stat-icon">{icon}</span>
@@ -28,10 +30,19 @@ const Home = () => {
   const levels = getLevelConfig();
   const [progress, setProgress] = useState(null);
   const [streak, setStreak] = useState(null);
+  const [totalQuestions, setTotalQuestions] = useState('45+');
 
   useEffect(() => {
     setProgress(getProgress());
     setStreak(getStreak());
+
+    api.getQuestionCounts()
+      .then((data) => {
+        if (data && data.total) {
+          setTotalQuestions(`${data.total}+`);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const scrollToDifficulty = () => {
@@ -96,7 +107,7 @@ const Home = () => {
 
             {/* Mini stats */}
             <div className="hero-stats">
-              <StatItem icon={<BookOpen size={16} />} value="30+" label="Questions" />
+              <StatItem icon={<BookOpen size={16} />} value={totalQuestions} label="Questions" />
               <div className="hero-stat-divider" />
               <StatItem icon={<Target size={16} />} value="3" label="Difficulty Levels" />
               <div className="hero-stat-divider" />

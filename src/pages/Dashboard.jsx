@@ -4,6 +4,7 @@ import { Zap, Trophy, Flame, Star, Target, RotateCcw, CheckCircle } from 'lucide
 import ProgressBar from '../components/ProgressBar';
 import { getProgress, getStreak, getAchievements, resetAllProgress } from '../utils/storage';
 import { getLevelConfig } from '../data/questions';
+import api from '../services/api';
 import './Dashboard.css';
 
 const Dashboard = () => {
@@ -14,9 +15,37 @@ const Dashboard = () => {
   const [levels] = useState(getLevelConfig());
 
   const loadData = () => {
-    setProgress(getProgress());
+    const local = getProgress();
+    setProgress(local);
     setStreak(getStreak());
     setAchievements(getAchievements());
+
+    api.getUserProgress()
+      .then((remote) => {
+        if (remote && remote.total_xp !== undefined) {
+          setProgress((prev) => ({
+            ...prev,
+            totalXP: Math.max(prev?.totalXP || 0, remote.total_xp),
+            level: Math.max(prev?.level || 1, remote.level),
+            basic: {
+              ...prev?.basic,
+              completed: Math.max(prev?.basic?.completed || 0, remote.basic?.completed || 0),
+              bestScore: Math.max(prev?.basic?.bestScore || 0, remote.basic?.best_score || 0),
+            },
+            intermediate: {
+              ...prev?.intermediate,
+              completed: Math.max(prev?.intermediate?.completed || 0, remote.intermediate?.completed || 0),
+              bestScore: Math.max(prev?.intermediate?.bestScore || 0, remote.intermediate?.best_score || 0),
+            },
+            advanced: {
+              ...prev?.advanced,
+              completed: Math.max(prev?.advanced?.completed || 0, remote.advanced?.completed || 0),
+              bestScore: Math.max(prev?.advanced?.bestScore || 0, remote.advanced?.best_score || 0),
+            },
+          }));
+        }
+      })
+      .catch(() => {});
   };
 
   useEffect(() => { loadData(); }, []);

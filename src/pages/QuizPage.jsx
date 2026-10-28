@@ -7,6 +7,8 @@ import { getQuestionsByLevel, getLevelConfig } from '../data/questions';
 import { saveQuizResult, updateHighScore } from '../utils/storage';
 import './QuizPage.css';
 
+import api from '../services/api';
+
 /* ─── Code block renderer ─── */
 const CodeBlock = ({ code }) => {
   if (!code) return null;
@@ -66,6 +68,7 @@ const TIMER_SECONDS = 30;
 const QuizPage = () => {
   const { level } = useParams();
   const navigate = useNavigate();
+  const [quizId, setQuizId] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [levelConfig, setLevelConfig] = useState(null);
   const [currentIdx, setCurrentIdx] = useState(0);
@@ -80,26 +83,55 @@ const QuizPage = () => {
   const [showExplanation, setShowExplanation] = useState(false);
 
   useEffect(() => {
-    const qs = getQuestionsByLevel(level);
     const configs = getLevelConfig();
     const cfg = configs.find((c) => c.id === level);
-    if (!qs.length || !cfg) {
+    if (!cfg) {
       navigate('/');
       return;
     }
-    // Shuffle
-    const shuffled = [...qs].sort(() => Math.random() - 0.5).slice(0, 10);
-    setQuestions(shuffled);
     setLevelConfig(cfg);
+
+    let isMounted = true;
+    // Attempt backend quiz creation
+    api.startQuiz(level, 10)
+      .then((session) => {
+        if (!isMounted) return;
+        if (session && session.questions && session.questions.length > 0) {
+          setQuizId(session.id);
+          setQuestions(session.questions);
+        } else {
+          loadFallback();
+        }
+      })
+      .catch((err) => {
+        console.warn('Backend unavailable, running in local mode:', err);
+        if (isMounted) loadFallback();
+      });
+
+    const loadFallback = () => {
+      const qs = getQuestionsByLevel(level);
+      if (!qs.length) {
+        navigate('/');
+        return;
+      }
+      const shuffled = [...qs].sort(() => Math.random() - 0.5).slice(0, 10);
+      setQuestions(shuffled);
+    };
+
+    return () => { isMounted = false; };
   }, [level, navigate]);
 
   const handleTimerExpire = useCallback(() => {
     if (submitted) return;
-    // Auto-submit with no answer (wrong)
     setTimerActive(false);
     setSubmitted(true);
     setMascotMode('wrong');
-    setAnswers((prev) => [...prev, { questionId: questions[currentIdx].id, selected: null, correct: false }]);
+    setAnswers((prev) => [...prev, {
+      questionId: questions[currentIdx].id,
+      selected: null,
+      correct: false,
+      question: questions[currentIdx],
+    }]);
   }, [submitted, currentIdx, questions]);
 
   const timeLeft = useTimer(TIMER_SECONDS, handleTimerExpire, timerActive && !submitted && questions.length > 0);
@@ -113,14 +145,7 @@ const QuizPage = () => {
     setSelectedAnswer(opt);
   };
 
-  const handleSubmit = () => {
-    if (!submitted && !selectedAnswer) return; // must select
-    if (submitted) return;
-
-    setTimerActive(false);
-    setSubmitted(true);
-
-    const isCorrect = selectedAnswer === currentQ.answer;
+  const applySubmissionResult = (isCorrect, correctAnswerText, explanationText) => {
     if (isCorrect) {
       setScore((s) => s + 1);
       setMascotMode('correct');
@@ -128,21 +153,53 @@ const QuizPage = () => {
       setMascotMode('wrong');
     }
 
-    setAnswers((prev) => [...prev, {
-      questionId: currentQ.id,
-      selected: selectedAnswer,
-      correct: isCorrect,
-      question: currentQ,
-    }]);
+    setAnswers((prev) => [
+      ...prev,
+      {
+        questionId: currentQ.id,
+        selected: selectedAnswer,
+        correct: isCorrect,
+        question: {
+          ...currentQ,
+          answer: correctAnswerText || currentQ.answer,
+          explanation: explanationText || currentQ.explanation,
+        },
+      },
+    ]);
     setShowExplanation(true);
   };
 
-  const handleNext = () => {
+  const handleSubmit = async () => {
+    if (!submitted && !selectedAnswer) return;
+    if (submitted) return;
+
+    setTimerActive(false);
+    setSubmitted(true);
+
+    if (quizId) {
+      try {
+        const result = await api.submitAnswer(quizId, currentQ.id, selectedAnswer);
+        applySubmissionResult(result.is_correct, result.correct_answer, result.explanation);
+        return;
+      } catch (err) {
+        console.warn('Backend submit failed, falling back to local evaluation:', err);
+      }
+    }
+
+    // Local evaluation fallback
+    const isCorrect = selectedAnswer === currentQ.answer;
+    applySubmissionResult(isCorrect, currentQ.answer, currentQ.explanation);
+  };
+
+  const handleNext = async () => {
     if (isLastQuestion) {
-      // Save result and navigate to results
       const totalSeconds = Math.round((Date.now() - quizStartTime) / 1000);
-      const finalScore = score + (answers.length > 0 && answers[answers.length - 1].correct ? 0 : 0); // already tallied
       const xpEarned = score * (levelConfig?.xpPerQuestion || 10);
+
+      // Finalize on backend if quizId is active
+      if (quizId) {
+        api.completeQuiz(quizId).catch((err) => console.warn('Complete quiz backend sync:', err));
+      }
 
       const savedProgress = saveQuizResult({
         level,
@@ -186,8 +243,10 @@ const QuizPage = () => {
 
   const getOptionState = (opt) => {
     if (!submitted) return selectedAnswer === opt ? 'selected' : '';
-    if (opt === currentQ.answer) return 'correct';
-    if (opt === selectedAnswer && opt !== currentQ.answer) return 'wrong';
+    const lastAns = answers[answers.length - 1];
+    const correctAns = lastAns?.question?.answer || currentQ.answer;
+    if (opt === correctAns) return 'correct';
+    if (opt === selectedAnswer && opt !== correctAns) return 'wrong';
     return '';
   };
 
@@ -277,10 +336,10 @@ const QuizPage = () => {
                 <div className="explanation-header">
                   {answers[answers.length - 1]?.correct
                     ? <><CheckCircle size={16} /> Correct! Well done!</>
-                    : <><XCircle size={16} /> Incorrect — Correct answer: <strong>{currentQ.answer}</strong></>
+                    : <><XCircle size={16} /> Incorrect — Correct answer: <strong>{answers[answers.length - 1]?.question?.answer || currentQ.answer}</strong></>
                   }
                 </div>
-                <p className="explanation-text">{currentQ.explanation}</p>
+                <p className="explanation-text">{answers[answers.length - 1]?.question?.explanation || currentQ.explanation}</p>
               </div>
             )}
 
